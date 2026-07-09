@@ -4,7 +4,7 @@ from dataclasses import dataclass
 class AgentIdentity:
     name: str
     owner: str
-    envirnoment: str
+    environment: str
     purpose: str
 
 def get_agent_identity() -> AgentIdentity:
