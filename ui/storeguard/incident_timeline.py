@@ -17,7 +17,7 @@ STATUS_LABELS = {
 def render_incident_timeline(events, *, title="Incident timeline"):
     """Render events in their supplied order; works with current demo event models."""
     st.subheader(title)
-    st.caption("Event history · presentation data until connected to the control plane")
+    st.caption("Event history · simulated inputs and locally validated state transitions; external audit integration pending")
     if not events:
         st.info("No incident events yet. Load the tornado fixture to view the timeline.")
         return
