@@ -1,3 +1,4 @@
+from ui.storeguard.incident_timeline import render_incident_timeline
 """StoreGuard presentation layer.
 
 Run from the repository root with:
@@ -154,6 +155,8 @@ if selected.mode == StoreMode.MAINTENANCE:
 else:
     st.success(f"Store #{selected.store_id} · {selected.mode.value} · {selected.health.value}")
 
+st.divider()
+render_incident_timeline(st.session_state.events)
 st.divider()
 st.subheader("Audit trail")
 if st.session_state.events:

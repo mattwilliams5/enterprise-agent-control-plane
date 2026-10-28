@@ -44,17 +44,16 @@ class Store:
     # Return False if denied
     
 
-
-# 5. Tests go at the bottom
+# 5. Manual testing
 if __name__ == "__main__":
     store = Store(1847)
 
-print("Initial:", store.state)
+    print("Initial:", store.state)
 
-result = store.transition(StoreState.PROTECTED)
-print("Allowed:", result)
-print("Current:", store.state)
+    result = store.transition(StoreState.PROTECTED)
+    print("Allowed:", result)
+    print("Current:", store.state)
 
-result = store.transition(StoreState.RECOVERY)
-print("Allowed:", result)
-print("Current:", store.state)
+    result = store.transition(StoreState.RECOVERY)
+    print("Allowed:", result)
+    print("Current:", store.state)
