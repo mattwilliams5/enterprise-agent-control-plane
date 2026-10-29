@@ -1,4 +1,8 @@
 
+from applications.storeguard.ai_recovery_agent import run_recovery_agent
+from applications.storeguard.recovery_agent import SystemHealth
+
+
 """StoreGuard demo dashboard with real local state-machine transitions.
 
 Weather and connectivity inputs are deterministic presentation fixtures.
@@ -581,3 +585,93 @@ else:
         "External audit persistence and tamper-evident storage "
         "are not yet integrated."
     )
+
+
+# ---------------------------------------------------------
+# AI RECOVERY ANALYST
+# ---------------------------------------------------------
+
+st.divider()
+st.subheader("🤖 AI Recovery Analyst")
+
+st.caption(
+    "LLM-assisted analysis using simulated health evidence. "
+    "Read-only: no recovery actions or approvals."
+)
+
+if "ai_analysis" not in st.session_state:
+    st.session_state.ai_analysis = None
+
+if "ai_analysis_store" not in st.session_state:
+    st.session_state.ai_analysis_store = None
+
+if selected.mode == StoreMode.MAINTENANCE:
+    st.warning(
+        "Demo assumption: connectivity and inventory are unhealthy. "
+        "Other required systems are healthy."
+    )
+
+    health = SystemHealth(
+        connectivity=False,
+        inventory=False,
+        payments=True,
+        safety=True,
+        orders=True,
+    )
+else:
+    st.info(
+        "Demo assumption: all required systems are healthy. "
+        "This is not a live service-health check."
+    )
+
+    health = SystemHealth(
+        connectivity=True,
+        inventory=True,
+        payments=True,
+        safety=True,
+        orders=True,
+    )
+
+question = st.text_area(
+    "Ask the Recovery Analyst",
+    value=(
+        f"Analyze Store {selected.store_id}, identify operational "
+        "risks, and recommend the next action."
+    ),
+    key=f"ai_question_{selected.store_id}",
+)
+
+if st.button("🔍 Analyze selected store", type="primary"):
+    with st.spinner("Analyzing StoreGuard recovery evidence..."):
+        try:
+            result = run_recovery_agent(
+                store_id=str(selected.store_id),
+                health=health,
+                elapsed_minutes=10,
+                rto_minutes=30,
+                question=question,
+            )
+
+            st.session_state.ai_analysis = result
+            st.session_state.ai_analysis_store = str(
+                selected.store_id
+            )
+
+        except Exception as exc:
+            st.session_state.ai_analysis = None
+            st.error(f"AI analysis failed: {exc}")
+
+if (
+    st.session_state.ai_analysis is not None
+    and st.session_state.ai_analysis_store
+    == str(selected.store_id)
+):
+    result = st.session_state.ai_analysis
+
+    st.markdown("### AI recommendation")
+    st.markdown(result["analysis"])
+
+    with st.expander("Agent tool activity"):
+        for activity in result["tool_activity"]:
+            st.write(f"Tool: `{activity['tool']}`")
+            st.json(activity["evidence"])
