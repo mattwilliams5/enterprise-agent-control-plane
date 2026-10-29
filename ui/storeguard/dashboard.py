@@ -605,32 +605,59 @@ if "ai_analysis" not in st.session_state:
 if "ai_analysis_store" not in st.session_state:
     st.session_state.ai_analysis_store = None
 
-if selected.mode == StoreMode.MAINTENANCE:
-    st.warning(
-        "Demo assumption: connectivity and inventory are unhealthy. "
-        "Other required systems are healthy."
+
+# ---------------------------------------------------------
+# DYNAMIC HEALTH SCENARIOS
+# ---------------------------------------------------------
+
+SCENARIOS = {
+    "Initial outage": {
+        "connectivity": False,
+        "inventory": False,
+        "payments": True,
+        "safety": True,
+        "orders": True,
+    },
+    "Partial restoration": {
+        "connectivity": True,
+        "inventory": False,
+        "payments": True,
+        "safety": True,
+        "orders": True,
+    },
+    "Services restored": {
+        "connectivity": True,
+        "inventory": True,
+        "payments": True,
+        "safety": True,
+        "orders": True,
+    },
+}
+
+scenario = st.selectbox(
+    "Simulated diagnostic scenario",
+    list(SCENARIOS),
+    key=f"health_scenario_{selected.store_id}",
+)
+
+health = SystemHealth(**SCENARIOS[scenario])
+
+st.caption(
+    "Health values are simulated diagnostic evidence. "
+    "They do not represent live monitoring."
+)
+
+h1, h2, h3, h4, h5 = st.columns(5)
+
+for column, (name, healthy) in zip(
+    [h1, h2, h3, h4, h5],
+    health.model_dump().items(),
+):
+    column.metric(
+        name.capitalize(),
+        "Healthy" if healthy else "Unhealthy",
     )
 
-    health = SystemHealth(
-        connectivity=False,
-        inventory=False,
-        payments=True,
-        safety=True,
-        orders=True,
-    )
-else:
-    st.info(
-        "Demo assumption: all required systems are healthy. "
-        "This is not a live service-health check."
-    )
-
-    health = SystemHealth(
-        connectivity=True,
-        inventory=True,
-        payments=True,
-        safety=True,
-        orders=True,
-    )
 
 question = st.text_area(
     "Ask the Recovery Analyst",
@@ -641,18 +668,35 @@ question = st.text_area(
     key=f"ai_question_{selected.store_id}",
 )
 
+elapsed_minutes = st.slider(
+    "Minutes elapsed since incident",
+    min_value=0,
+    max_value=35,
+    value=10,
+    step=5,
+)
+
+evidence_signature = (
+    str(selected.store_id),
+    scenario,
+    elapsed_minutes,
+)
+
+if st.session_state.get("ai_evidence_signature") != evidence_signature:
+    st.session_state.ai_analysis = None
 if st.button("🔍 Analyze selected store", type="primary"):
     with st.spinner("Analyzing StoreGuard recovery evidence..."):
         try:
             result = run_recovery_agent(
                 store_id=str(selected.store_id),
                 health=health,
-                elapsed_minutes=10,
+                elapsed_minutes=elapsed_minutes,
                 rto_minutes=30,
                 question=question,
             )
 
             st.session_state.ai_analysis = result
+            st.session_state.ai_evidence_signature = evidence_signature
             st.session_state.ai_analysis_store = str(
                 selected.store_id
             )
