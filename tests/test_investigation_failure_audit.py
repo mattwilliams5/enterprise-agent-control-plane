@@ -140,3 +140,71 @@ def test_investigation_failure_with_successful_revocation(tmp_path):
         "INVESTIGATION_FAILED",
         "TOKEN_REVOKED",
     ]
+
+
+def test_investigation_and_cleanup_audit_failures_are_both_preserved(tmp_path):
+    """Both investigation and cleanup-audit errors must remain observable."""
+    import sqlite3
+    from unittest.mock import patch
+    from contextlib import contextmanager
+
+    import identity.execution_gate as gate
+
+    db_path = tmp_path / "audit.sqlite3"
+    original_record = gate._record
+
+    @contextmanager
+    def session(**kwargs):
+        try:
+            yield IDENTITY
+        finally:
+            callback = kwargs.get("on_token_revoked")
+            if callback:
+                callback()
+
+    def selective_record(path, event):
+        if event["event_type"] == "TOKEN_REVOKED":
+            raise sqlite3.OperationalError("Cleanup audit unavailable")
+        return original_record(path, event)
+
+    def investigation():
+        raise RuntimeError("Investigation failed")
+
+    with (
+        patch(
+            "identity.execution_gate.managed_approle_session",
+            side_effect=session,
+        ),
+        patch("identity.execution_gate.verify_agent_identity"),
+        patch(
+            "identity.execution_gate.authorize_investigation",
+            return_value=True,
+        ),
+        patch.object(gate, "_record", side_effect=selective_record),
+    ):
+        with pytest.raises(ExceptionGroup) as captured:
+            execute_investigation(
+                agent_name="sre-troubleshooting-agent",
+                store_id="1847",
+                incident_id="test-incident",
+                vault_addr="http://127.0.0.1:8200",
+                role_id="test-role",
+                secret_id="test-secret",
+                allowed_store_ids={"1847"},
+                investigation=investigation,
+                db_path=db_path,
+            )
+
+    errors = captured.value.exceptions
+
+    assert len(errors) == 2
+    assert any(
+        isinstance(error, RuntimeError)
+        and str(error) == "Investigation failed"
+        for error in errors
+    )
+    assert any(
+        isinstance(error, sqlite3.OperationalError)
+        and str(error) == "Cleanup audit unavailable"
+        for error in errors
+    )

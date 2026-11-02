@@ -102,14 +102,19 @@ def execute_investigation(
     authorized = False
     execution_started = False
     investigation_failed = False
+    cleanup_audit_error = None
 
     def record_token_revoked():
-        _record(db_path, _event(
-            run_id, agent_name, store_id, incident_id,
-            "TOKEN_REVOKED",
-            "Vault self-revocation acknowledged",
-            entity_id,
-        ))
+        nonlocal cleanup_audit_error
+        try:
+            _record(db_path, _event(
+                run_id, agent_name, store_id, incident_id,
+                "TOKEN_REVOKED",
+                "Vault self-revocation acknowledged",
+                entity_id,
+            ))
+        except Exception as exc:
+            cleanup_audit_error = exc
 
     try:
         with managed_approle_session(
@@ -159,6 +164,9 @@ def execute_investigation(
                 "COMPLETED", "Investigation completed", entity_id,
             ))
 
+        if cleanup_audit_error is not None:
+            raise cleanup_audit_error
+
         return {"run_id": run_id, "result": result}
 
     except VaultRevocationError:
@@ -170,6 +178,16 @@ def execute_investigation(
 
     except Exception as exc:
         if investigation_failed:
+            if cleanup_audit_error is not None:
+                if exc is cleanup_audit_error:
+                    raise
+                raise ExceptionGroup(
+                    "Investigation and cleanup audit both failed",
+                    [exc, cleanup_audit_error],
+                ) from exc
+            raise
+
+        if cleanup_audit_error is not None:
             raise
 
         event_type = "FAILED" if execution_started else "DENIED"
