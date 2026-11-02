@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from identity.show_id import verify_agent_identity
-from identity.vault_identity import authenticate_approle
+from registry.fingerprint import registration_fingerprint
+from identity.vault_identity import managed_approle_session, VaultRevocationError
 from policy.engine import authorize_investigation
 
 
@@ -37,18 +38,39 @@ def _record(db_path, event):
                 vault_entity_id TEXT
             )
         """)
+        columns = {
+            row[1] for row in db.execute(
+                "PRAGMA table_info(execution_events)"
+            )
+        }
+        if "registration_fingerprint" not in columns:
+            db.execute(
+                "ALTER TABLE execution_events "
+                "ADD COLUMN registration_fingerprint TEXT"
+            )
+
         db.execute("""
-            INSERT INTO execution_events VALUES (
+            INSERT INTO execution_events (
+                event_id, run_id, timestamp, agent,
+                store_id, incident_id, action, event_type,
+                reason, vault_entity_id, registration_fingerprint
+            ) VALUES (
                 :event_id, :run_id, :timestamp, :agent,
                 :store_id, :incident_id, :action, :event_type,
-                :reason, :vault_entity_id
+                :reason, :vault_entity_id, :registration_fingerprint
             )
         """, event)
 
 
 def _event(run_id, agent, store_id, incident_id, event_type,
            reason, vault_entity_id=None):
+    try:
+        fingerprint = registration_fingerprint(agent)
+    except ValueError:
+        fingerprint = None
+
     return {
+        "registration_fingerprint": fingerprint,
         "event_id": str(uuid.uuid4()),
         "run_id": run_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -74,62 +96,94 @@ def execute_investigation(
     investigation,
     db_path="data/storeguard_security_audit.sqlite3",
 ):
-    """Authorize and execute one investigation with an audit trail.
-
-    `investigation` is a callable executed only after authorization.
-    `allowed_store_ids` must come from trusted backend configuration,
-    never from the agent or an LLM.
-    """
+    """Authorize, execute, audit, and clean up one investigation."""
     run_id = str(uuid.uuid4())
     entity_id = None
+    authorized = False
+    execution_started = False
+    investigation_failed = False
+
+    def record_token_revoked():
+        _record(db_path, _event(
+            run_id, agent_name, store_id, incident_id,
+            "TOKEN_REVOKED",
+            "Vault self-revocation acknowledged",
+            entity_id,
+        ))
 
     try:
-        identity = authenticate_approle(
+        with managed_approle_session(
             vault_addr=vault_addr,
             role_id=role_id,
             secret_id=secret_id,
-        )
-        entity_id = identity.entity_id
+            on_token_revoked=record_token_revoked,
+        ) as identity:
+            entity_id = identity.entity_id
 
-        verify_agent_identity(agent_name, identity)
+            verify_agent_identity(agent_name, identity)
 
-        if not authorize_investigation(
-            agent_name=agent_name,
-            store_id=store_id,
-            incident_id=incident_id,
-            allowed_store_ids=allowed_store_ids,
-        ):
-            raise ExecutionDenied("Investigation not authorized")
+            if not authorize_investigation(
+                agent_name=agent_name,
+                store_id=store_id,
+                incident_id=incident_id,
+                allowed_store_ids=allowed_store_ids,
+            ):
+                raise ExecutionDenied("Investigation not authorized")
 
-        _record(db_path, _event(
-            run_id, agent_name, store_id, incident_id,
-            "AUTHORIZED", "Identity and scope verified", entity_id,
-        ))
+            _record(db_path, _event(
+                run_id, agent_name, store_id, incident_id,
+                "AUTHORIZED", "Identity and scope verified", entity_id,
+            ))
+            authorized = True
 
-    except Exception as exc:
-        _record(db_path, _event(
-            run_id, agent_name, store_id, incident_id,
-            "DENIED", type(exc).__name__, entity_id,
-        ))
-        raise ExecutionDenied("StoreGuard execution denied") from exc
+            _record(db_path, _event(
+                run_id, agent_name, store_id, incident_id,
+                "STARTED", "Investigation started", entity_id,
+            ))
+            execution_started = True
 
-    try:
-        _record(db_path, _event(
-            run_id, agent_name, store_id, incident_id,
-            "STARTED", "Investigation started", entity_id,
-        ))
+            try:
+                result = investigation()
+            except Exception:
+                investigation_failed = True
+                _record(db_path, _event(
+                    run_id, agent_name, store_id, incident_id,
+                    "INVESTIGATION_FAILED",
+                    "Investigation callback raised",
+                    entity_id,
+                ))
+                raise
 
-        result = investigation()
+            _record(db_path, _event(
+                run_id, agent_name, store_id, incident_id,
+                "COMPLETED", "Investigation completed", entity_id,
+            ))
 
-        _record(db_path, _event(
-            run_id, agent_name, store_id, incident_id,
-            "COMPLETED", "Investigation completed", entity_id,
-        ))
         return {"run_id": run_id, "result": result}
 
-    except Exception as exc:
+    except VaultRevocationError:
         _record(db_path, _event(
             run_id, agent_name, store_id, incident_id,
-            "FAILED", type(exc).__name__, entity_id,
+            "REVOCATION_FAILED", "Vault token revocation unconfirmed", entity_id,
         ))
+        raise
+
+    except Exception as exc:
+        if investigation_failed:
+            raise
+
+        event_type = "FAILED" if execution_started else "DENIED"
+
+        try:
+            _record(db_path, _event(
+                run_id, agent_name, store_id, incident_id,
+                event_type, type(exc).__name__, entity_id,
+            ))
+        except Exception:
+            # Preserve the original failure. The caller must still fail closed.
+            raise
+
+        if not authorized:
+            raise ExecutionDenied("StoreGuard execution denied") from exc
+
         raise

@@ -61,3 +61,73 @@ def authenticate_approle(
         raise VaultIdentityError(
             "Vault workload authentication failed"
         ) from exc
+
+
+from contextlib import contextmanager
+
+
+class VaultRevocationError(VaultIdentityError):
+    """Vault token cleanup could not be confirmed."""
+
+
+@contextmanager
+def managed_approle_session(
+    *,
+    vault_addr: str,
+    role_id: str,
+    secret_id: str,
+    on_token_revoked=None,
+):
+    """Authenticate and manage a short-lived Vault token.
+
+    The token remains inside this trusted backend context.
+    The caller receives only verified identity metadata.
+    """
+    if not all((vault_addr, role_id, secret_id)):
+        raise VaultIdentityError("Missing Vault authentication configuration")
+
+    client = hvac.Client(url=vault_addr)
+    token_issued = False
+
+    try:
+        response = client.auth.approle.login(
+            role_id=role_id,
+            secret_id=secret_id,
+        )
+        auth = response["auth"]
+        token = auth.get("client_token")
+
+        if not token:
+            raise VaultIdentityError("Vault returned no client token")
+
+        token_issued = True
+        client.token = token
+
+        entity_id = auth.get("entity_id")
+        policies = tuple(auth.get("policies", []))
+        ttl = int(auth.get("lease_duration", 0))
+
+        if not entity_id:
+            raise VaultIdentityError("Vault returned no entity identity")
+        if "storeguard-investigator" not in policies:
+            raise VaultIdentityError("Required investigator policy missing")
+        if ttl <= 0:
+            raise VaultIdentityError("Vault returned an invalid token TTL")
+
+        yield VerifiedVaultIdentity(
+            entity_id=entity_id,
+            policies=policies,
+            token_ttl=ttl,
+        )
+
+    finally:
+        if token_issued:
+            try:
+                client.auth.token.revoke_self()
+            except Exception as exc:
+                raise VaultRevocationError(
+                    "Vault token revocation could not be confirmed"
+                ) from exc
+            else:
+                if on_token_revoked is not None:
+                    on_token_revoked()
