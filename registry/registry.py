@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+
 @dataclass
 class AgentRecord:
     name: str
@@ -9,6 +10,8 @@ class AgentRecord:
     risk_level: str
     approved: bool
     status: str
+    vault_entity_id: str | None = None
+
 
 AGENT_REGISTRY = {
     "sre-troubleshooting-agent": AgentRecord(
@@ -19,8 +22,10 @@ AGENT_REGISTRY = {
         risk_level="medium",
         approved=True,
         status="active",
+        vault_entity_id="69a625b6-e6b7-3fb7-a82a-04dc19af4b24",
     )
 }
+
 
 def get_agent_record(agent_name: str) -> AgentRecord | None:
     return AGENT_REGISTRY.get(agent_name)

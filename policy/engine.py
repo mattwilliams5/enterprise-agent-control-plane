@@ -35,3 +35,19 @@ def is_action_allowed(agent_name: str, action: str) -> bool:
     allowed_actions = POLICIES.get(agent_name, [])
 
     return action in allowed_actions
+
+def authorize_investigation(
+    *,
+    agent_name: str,
+    store_id: str,
+    incident_id: str,
+    allowed_store_ids: frozenset[str],
+) -> bool:
+    """Authorize one read-only investigation against explicit scope."""
+    if not store_id or not incident_id:
+        return False
+
+    if store_id not in allowed_store_ids:
+        return False
+
+    return is_action_allowed(agent_name, "check_health")

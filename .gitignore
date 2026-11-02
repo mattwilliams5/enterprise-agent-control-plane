@@ -38,3 +38,9 @@ dist/
 
 # Logs
 *.log
+# StoreGuard local security audit databases
+data/*.sqlite3
+data/*.sqlite3-*
+
+# Local StoreGuard dashboard backups
+ui/storeguard/*.pre-governance-backup
