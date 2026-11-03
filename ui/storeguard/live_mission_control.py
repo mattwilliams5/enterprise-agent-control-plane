@@ -78,7 +78,7 @@ def _incident_audit():
         with sqlite3.connect(f"file:{Path(AUDIT_DB).resolve()}?mode=ro",uri=True,timeout=2) as db:
             db.row_factory=sqlite3.Row
             return [dict(row) for row in db.execute(
-                "SELECT timestamp,run_id,agent,store_id,incident_id,event_type,reason,vault_entity_id "
+                "SELECT timestamp,run_id,agent,store_id,incident_id,event_type,reason,vault_entity_id,vault_login_request_id "
                 "FROM execution_events WHERE incident_id=? AND store_id=? AND agent=? "
                 "ORDER BY timestamp ASC,rowid ASC LIMIT 300",
                 (str(incident.incident_id),store_id,AGENT_NAME))]

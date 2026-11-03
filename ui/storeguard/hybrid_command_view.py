@@ -5,6 +5,55 @@ simulation are owned by the existing application and are not modified here.
 """
 from datetime import datetime, timezone
 import streamlit as st
+from identity.vault_audit_verifier import verify_vault_audit
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _cached_vault_verification(login_id, entity_id):
+    return verify_vault_audit(login_id, entity_id)
+
+
+def _vault_evidence(records):
+    login_ids = {
+        str(e["vault_login_request_id"])
+        for e in records if e.get("vault_login_request_id")
+    }
+    entities = {
+        str(e["vault_entity_id"])
+        for e in records if e.get("vault_entity_id")
+    }
+    types = {str(e.get("event_type", "")) for e in records}
+
+    if "REVOCATION_FAILED" in types:
+        return "partial", "Application reported token revocation failure."
+
+    if "TOKEN_REVOKED" not in types:
+        return "pending", "Application token revocation event is missing."
+
+    if len(login_ids) != 1 or len(entities) != 1:
+        return "pending", "Unique login request and Vault entity are required."
+
+    result = _cached_vault_verification(
+        next(iter(login_ids)),
+        next(iter(entities)),
+    )
+    return result.status, result.detail
+
+
+def _render_vault_status(records):
+    status, detail = _vault_evidence(records)
+    if status == "verified":
+        st.success("🛡️ Vault server audit VERIFIED")
+        st.caption(detail)
+    elif status == "partial":
+        st.warning("Vault server audit: partial evidence")
+        st.caption(detail)
+    elif status == "unavailable":
+        st.warning("Vault server audit: source unavailable")
+        st.caption(detail)
+    else:
+        st.info("Vault server audit: verification pending")
+        st.caption(detail)
 
 
 def _value(item, field, default=""):
@@ -65,7 +114,7 @@ def _security_panel(incident, audit, agent_name):
         st.success("Credential closure: revocation recorded")
     else:
         st.warning("Credential closure: not evidenced")
-    st.caption("These are local application records, not independently verified Vault server audit logs.")
+    _render_vault_status(records)
 
 
 
@@ -91,6 +140,7 @@ def _trace_panel(events, audit, latest):
         types = {str(e.get("event_type", "")) for e in records}
 
         st.caption("Selected execution: " + str(selected_run))
+        _render_vault_status(records)
 
         a, b, c = st.columns(3)
         a.metric("Audit events", len(records))
@@ -125,7 +175,7 @@ def _trace_panel(events, audit, latest):
         )
 
         with st.expander("Full investigation evidence", expanded=False):
-            st.caption("Application-recorded evidence, not independent Vault audit.")
+            st.caption("Application events shown below; Vault verification is displayed separately.")
             for index, e in enumerate(records, 1):
                 st.markdown(
                     f"**{index}. {e.get('event_type', 'Unknown')}**"
@@ -139,8 +189,8 @@ def _trace_panel(events, audit, latest):
                 })
 
     st.caption(
-        "Evidence source: local application SQLite audit. "
-        "Vault server audit correlation is not yet implemented."
+        "Execution timeline: application SQLite audit. "
+        "Vault verification: independently matched server audit records."
     )
 
     with st.expander("Simulated operational timeline", expanded=False):

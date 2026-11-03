@@ -14,6 +14,7 @@ class VerifiedVaultIdentity:
     entity_id: str
     policies: tuple[str, ...]
     token_ttl: int
+    login_request_id: str | None = None
 
 
 def authenticate_approle(
@@ -118,6 +119,7 @@ def managed_approle_session(
             entity_id=entity_id,
             policies=policies,
             token_ttl=ttl,
+            login_request_id=response.get("request_id"),
         )
 
     finally:
