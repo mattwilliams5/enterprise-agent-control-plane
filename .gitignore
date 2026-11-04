@@ -44,3 +44,18 @@ data/*.sqlite3-*
 
 # Local StoreGuard dashboard backups
 ui/storeguard/*.pre-governance-backup
+
+# Terraform local files and sensitive state
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/terraform.tfvars
+**/*.auto.tfvars
+**/*.tfplan
+**/crash.log
+**/crash.*.log
+**/.terraform.tfstate.lock.info
+**/override.tf
+**/override.tf.json
+**/*_override.tf
+**/*_override.tf.json
