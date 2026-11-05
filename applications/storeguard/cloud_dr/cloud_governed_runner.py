@@ -67,8 +67,17 @@ class CloudGovernedReadOnlyRunner:
             # revocation/delegation/scope state.
             action_gate_run_id = self.gate.authorize_run(intent, evidence)
 
-        except Exception:
-            record("DENIED_OR_UNCONFIRMED", "authorization_failed")
+        except Exception as primary_error:
+            try:
+                record("DENIED_OR_UNCONFIRMED", "authorization_failed")
+            except Exception as audit_error:
+                # Preserve the original security failure.
+                # Never include credentials or exception messages in notes.
+                primary_error.add_note(
+                    "Fallback audit persistence also failed: "
+                    + type(audit_error).__name__
+                )
+                raise primary_error from audit_error
             raise
 
         # A successful STARTED audit write is mandatory before invoking

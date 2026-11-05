@@ -199,12 +199,13 @@ def test_firestore_write_outage_blocks_execution():
     db, identity, executed, runner, intent = setup()
     db.fail_writes = True
 
-    with pytest.raises(RuntimeError, match="Evidence storage unavailable"):
+    with pytest.raises(AgentDenied) as exc:
         runner.execute(intent=intent, evidence="trusted-fixture")
 
-    # Both authorization and fallback audit storage failed.
-    # The protected tool must never execute.
+    assert exc.value.reason == "audit_unavailable"
+    assert isinstance(exc.value.__cause__, RuntimeError)
     assert executed == []
+    assert not db.events("storeguard_agent_tool_events")
 
 
 def test_invalid_identity_evidence_blocks_execution():
