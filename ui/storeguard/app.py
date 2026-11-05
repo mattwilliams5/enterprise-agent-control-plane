@@ -8,6 +8,16 @@ st.set_page_config(
     layout="wide",
 )
 
+# Cloud mode is deliberately limited to a read-only vetted page.
+# Do not import local Vault provisioner or privileged action modules in Cloud Run.
+import os
+if os.environ.get("STOREGUARD_CLOUD_MODE") == "1":
+    navigation = st.navigation([
+        st.Page("cloud_overview.py", title="Live Mission Control", icon=":material/monitor_heart:", default=True),
+    ])
+    navigation.run()
+    st.stop()
+
 pages = [
     st.Page(
         "live_mission_control.py",

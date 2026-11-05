@@ -1,0 +1,19 @@
+# GitHub trigger: build only, never deploy or alter IAM automatically.
+steps:
+  - name: python:3.12-slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        python infrastructure/gcp/executive/prepare_context.py
+        python -m compileall -q .local/storeguard-executive-build/ui
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - us-central1-docker.pkg.dev/$PROJECT_ID/storeguard-executive/storeguard-executive:$SHORT_SHA
+      - .local/storeguard-executive-build
+images:
+  - us-central1-docker.pkg.dev/$PROJECT_ID/storeguard-executive/storeguard-executive:$SHORT_SHA
+options:
+  logging: CLOUD_LOGGING_ONLY
