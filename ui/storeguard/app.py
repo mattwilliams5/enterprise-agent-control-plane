@@ -13,8 +13,18 @@ st.set_page_config(
 import os
 if os.environ.get("STOREGUARD_CLOUD_MODE") == "1":
     navigation = st.navigation([
-        st.Page("cloud_overview.py", title="Live Mission Control", icon=":material/monitor_heart:", default=True),
-    ])
+        st.Page(
+            "cloud_overview.py",
+            title="Executive Overview",
+            icon=":material/dashboard:",
+            default=True,
+        ),
+        st.Page(
+            "cloud_tornado.py",
+            title="Tornado & DR Exercise",
+            icon=":material/thunderstorm:",
+        ),
+    ], position="sidebar")
     navigation.run()
     st.stop()
 
