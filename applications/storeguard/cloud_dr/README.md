@@ -1,148 +1,128 @@
-# StoreGuard — Cloud Order Processing & Regional Recovery
+# StoreGuard | Cloud Resilience & Governed Agents
 
-**Repository:** `enterprise-agent-control-plane`  
-**Development branch:** `feature/storeguard-executive-gui`  
-**Status snapshot:** November 4, 2026 (last developer-verified results)
+> **Status:** Development demonstration · **Branch:** `feature/storeguard-executive-gui` · **Last verified:** November 5, 2026
+>
+> **Test baseline:** **296 passing** · **Cloud:** Firestore in `nam7`; no confirmed Cloud Run deployment in either target region · **GUI:** Existing Streamlit UI unchanged by these cloud batches
 
-StoreGuard is an enterprise retail-resilience demonstration. Its order-processing subsystem models retail stores generating orders, retaining them locally during network disruption, and delivering them through region-aware application endpoints to a transactional Firestore ledger. The broader platform explores policy-governed, auditable agent operations.
+StoreGuard demonstrates how a network of retail stores can keep orders durable during disruption, restore application connectivity through regional routing, and make agent decisions traceable to verified identities and policy. The system is **not yet a production DR solution**.
 
-> **Scope and safety:** This subsystem is a development/research demonstration, **not a production-ready disaster-recovery system**. Do not expose the existing development-key API publicly. Do not deploy or change paid cloud infrastructure without approval. Preserve uncommitted UI work; the Streamlit GUI is out of scope for the cloud-order batches.
+## At a glance
 
-## Verified status
-
-| Area | Verified result | Important qualification |
+| Proven | Built and locally tested | Not yet proven |
 |---|---|---|
-| Automated suite | **241 passed** (Nov 4, 2026; 1.13 s) | Local regression tests; not a cloud-deployment qualification |
-| Simulated retail workload | 40 stores generated 80 orders; store 1847 submitted live simulator orders | Not yet 40 separately authenticated cloud-connected stores |
-| Local order API | FastAPI served on `127.0.0.1:8080`; observed HTTP 200, 409 and receipt lookups | Dev-key authentication only; server not necessarily running now |
-| Firestore | `(default)` Native, Standard, `nam7`, pessimistic concurrency | Multi-region database shared by both proposed application regions |
-| Live Firestore first-submission races | **2/2 passed**: `committed`+`duplicate` for equal payloads; `committed`+`conflict` for different amounts | Synthetic documents retained; not exhaustive load/fault testing |
-| GCS Terraform state | `gs://storeguard-dr-demo-2026-tfstate/`, `US-CENTRAL1`; public access prevention, uniform access, versioning, 7-day soft delete | Bucket is regional, not cross-region failover of Terraform state |
-| Cloud Run | No services listed in `us-central1` or `us-east4` at last check | No real Cloud Run regional failover demonstrated |
-| Delivery reliability | Queue, leases, bounded retry, quarantine, regional preference/failback passed local tests | Batch 3 worker is opt-in; tests do not show it activated in a live simulator process |
-| Store identity | 15 Ed25519 enrollment/signing/replay/rotation/revocation tests passed | Identity is not yet enforced by FastAPI or shared across Cloud Run instances |
+| 40 independently signed store clients reached a **local** FastAPI server; 40 orders and 40 receipts independently verified in **real Firestore** | Durable queue retry/leases, regional health and controlled failback, shared Firestore identity/replay components, Vault agent adapters | Dual-region Cloud Run failover, real cross-region replay/revocation, live Vault agent enforcement at every protected action, independent database recovery |
+| Live Firestore same-order concurrency races passed for the two tested scenarios | 296 automated tests pass | Production security and availability requirements |
+
+**Cloud project:** `storeguard-dr-demo-2026`  
+**Firestore:** Native `(default)`, Standard edition, multi-region `nam7`  
+**App regions planned:** `us-central1` (primary), `us-east4` (recovery)  
+**Terraform state:** `gs://storeguard-dr-demo-2026-tfstate/` (`us-central1`)
 
 ## Architecture
 
 ```text
-40 simulated store clients
-       |
-       v
-Local SQLite durable order queue
-       |
-       v
-Reliable delivery coordinator (leases, retry, quarantine)
-       |
-       v
-Regional router + durable regional preference / controlled failback
-       |                                  |
-       v                                  v
-Cloud Run primary (planned)          Cloud Run recovery (planned)
-    us-central1                           us-east4
-       \                                  /
-        \                                /
-          Shared Firestore transactional ledger
-                      (nam7)
+40 independently enrolled stores (Ed25519 signing keys)
+          │
+          ▼
+Durable local SQLite order queues ──► retries / lease-based delivery
+          │
+          ▼
+Signed HTTP request verification ──► store identity + revocation + replay checks
+          │
+          ▼
+Regional router + health tracking / controlled failback
+          ├──────────────────────────┐
+          ▼                          ▼
+ Cloud Run us-central1        Cloud Run us-east4
+       (planned)                   (planned)
+          └────────────┬─────────────┘
+                       ▼
+       Shared Firestore transaction ledger (`nam7`)
+       canonical order ─ idempotency key ─ receipt
+
+Separate governance path (partially integrated):
+Vault workload authentication → agent registry → delegation/scope policy
+→ auditable run decision → protected action checks
 ```
 
-**Recovery boundary:** This topology supports *application-region recovery* once deployed and tested, not independent Firestore disaster recovery. Firestore point-in-time recovery was **disabled** at the last check. Cloud Run has not yet been deployed.
+**Important:** The successful 40-store cloud test used FastAPI on **localhost** with Firestore as the remote ledger. It was **not** an application hosted on Cloud Run. The regional diagram above is a target architecture, not a deployed topology. Firestore multi-region availability is not independent database disaster recovery.
 
-## Repository layout (relevant files)
+## Quick start (safe, local)
 
-```text
-applications/storeguard/cloud_dr/
-  order_api.py               # Local development FastAPI endpoint; shared dev-key auth
-  order_ledger.py            # Firestore canonical order identity + key/receipt records
-  order_queue.py             # Durable SQLite queue
-  regional_router.py         # Primary/recovery HTTP routing
-  queue_router_delivery.py   # Batch 2 coordinator
-  delivery_reliability.py    # Batch 3 claim/lease/retry state
-  reliable_delivery.py       # Batch 3 reliable processing
-  regional_health.py         # Batch 3 persistent health/preference/failback
-  health_aware_router.py     # Batch 3 health-aware regional routing
-  store_identity.py          # Batch 5 Ed25519 identity primitives, local SQLite registry
-scripts/
-  verify_firestore_races.py  # Batch 4 opt-in real-Firestore race verification
-tests/
-  test_cloud_*.py            # Relevant local regression tests
-```
-
-## Prerequisites
-
-- Python environment with project dependencies, including `pytest`, `fastapi`, `uvicorn`, `httpx`, `google-cloud-firestore`, `pydantic`, and `cryptography`.
-- Google Cloud CLI and application-default credentials for live Firestore operations.
-- Google Cloud project: `storeguard-dr-demo-2026` (only for authorized live-cloud exercises).
-- Do not commit credentials, private keys, local SQLite databases, cached output, or staging folders.
-
-## Local verification
-
-From the repository root:
+From the repository root, using the project's installed Python environment:
 
 ```bash
 python3 -m pytest -q
 ```
 
-The **last verified** outcome was `241 passed in 1.13s`. Your current result may differ as code evolves.
+Last reported result: **296 passed in 2.40s**. Tests alone do not establish live GCP or Vault readiness.
 
-For focused security tests:
+### Local signed API and offline HTTP exercise
 
-```bash
-python3 -m pytest -q tests/test_cloud_store_identity.py
-```
+Private identities must already be enrolled under `.local/storeguard-identity-demo/`; **never commit or sync that directory**. Check the enrollment instructions and offline smoke runbook in the applicable batch integration guide before re-enrolling or creating a new queue.
 
-For the development API, configure local-only credentials outside Git and bind only to loopback:
+**Terminal A** (offline ledger; no Firestore writes):
 
 ```bash
-export GOOGLE_CLOUD_PROJECT=storeguard-dr-demo-2026
-export STOREGUARD_DEV_STORE_ID=1847
-export STOREGUARD_DEV_API_KEY="$(cat .local/storeguard-dev-api-key)"
-python3 -m uvicorn applications.storeguard.cloud_dr.order_api:app --host 127.0.0.1 --port 8080
+export STOREGUARD_IDENTITY_DB="$PWD/.local/storeguard-identity-demo/trusted_stores.sqlite3"
+mkdir -p .local/storeguard-http-demo
+export STOREGUARD_OFFLINE_LEDGER_DB="$PWD/.local/storeguard-http-demo/orders.sqlite3"
+python3 -m uvicorn applications.storeguard.cloud_dr.offline_signed_api:app \
+  --host 127.0.0.1 --port 8081
 ```
 
-**Never** reuse this development credential for publicly accessible endpoints. Do not treat `/health` returning `ok` as a complete readiness probe of Firestore or regional dependencies.
-
-### Real Firestore concurrency test (opt-in)
-
-This exercise **writes synthetic records to the existing project** and may incur usage charges. Obtain approval before repeating it:
+**Terminal B** (read-only health check):
 
 ```bash
-export GOOGLE_CLOUD_PROJECT=storeguard-dr-demo-2026
-python3 -m scripts.verify_firestore_races \
-  --project storeguard-dr-demo-2026 \
-  --ack-live-writes
+curl -fsS http://127.0.0.1:8081/health
 ```
 
-Verified November 4, 2026: same-payload/different-key requests produced one `committed` and one `duplicate` response; different-amount/different-key requests produced one `committed` and one `conflict` response. Synthetic records were intentionally retained for inspection.
+The previously completed demonstration delivered **40 queued orders over real localhost HTTP** and left **0 pending orders**. Do not reseed or replace an existing SQLite queue without reviewing its state.
 
-## Identity and governance
+### Signed API backed by real Firestore — *opt-in only*
 
-- **Store identity (prototype):** Batch 5 supports per-store Ed25519 keys, signed `POST /orders` request envelopes, key registration/revocation/rotation, and restart-persistent replay protection in **local SQLite**.
-- **API enforcement (pending):** `order_api.py` still uses `STOREGUARD_DEV_API_KEY` and `STOREGUARD_DEV_STORE_ID`. The identity verifier must be integrated through a signed-only API boundary with no production fallback to the shared development key.
-- **Cloud identity (pending):** Two Cloud Run regions need a trusted shared identity enrollment/revocation source and transactionally coordinated replay defense. Local SQLite is unsuitable for distributed enforcement.
-- **Agent identity (pending):** SG-IDENTITY-001 requires fresh cryptographic identity verification on every agent run, current registration and revocation checks, scoped delegation/authorization, unique run ID, and auditable decisions. Store client authentication is **not** a substitute for agent authorization.
-- **Service identity (planned):** Cloud Run should use appropriately scoped service accounts to reach Firestore.
+The `signed_order_api:app` process can use real Firestore on `127.0.0.1:8082`. **Starting the server is not an invitation to repeat a live write run.** Live tests must use the explicit operator-approval flag in the Batch 5D/5E runbook; writes consume cloud quota, can incur charges, and intentionally retain synthetic records.
 
-## Delivery semantics and operating constraints
+Verified live run: `1f96d9c0bd60` — **40 canonical orders, 40 receipts, 40 distinct stores**, plus 40 successful fresh signed idempotent retries and 40 rejected replays reported by the client. The Firestore counts were checked independently. Two earlier first-submission race scenarios also passed (matching orders: committed/duplicate; conflicting amounts: committed/conflict).
 
-1. Persist an order before network submission; preserve logical order identity and the same idempotency key across retries.
-2. Treat timeouts, 502/503/504, and lost acknowledgments as potentially committed transactions; only acknowledge confirmed receipts.
-3. Quarantine durable authorization/conflict failures for investigation; never silently discard orders.
-4. Do not run the legacy Batch 1/2 delivery loop in parallel with the Batch 3 reliable worker on the same SQLite queue.
-5. Use **one** reliable worker per local queue until heartbeat, lease timing and multi-worker behavior are further validated.
-6. Persistent recovery preference does not mean automatic primary failback. Independent probes and an explicit failback decision are required.
-7. Historical orders written before canonical uniqueness existed need separate reconciliation.
+## Code map
 
-## Known gaps and next milestones
+| Area | Key modules |
+|---|---|
+| Transaction ledger | `order_ledger.py`, `order_api.py` (local dev-key API only) |
+| Durability / delivery | `order_queue.py`, `queue_router_delivery.py`, `delivery_reliability.py`, `reliable_delivery.py`, `signed_queue_delivery.py` |
+| Regional routing | `regional_router.py`, `regional_health.py`, `health_aware_router.py` |
+| Signed stores / APIs | `store_identity.py`, `signed_order_api.py`, `offline_signed_api.py` |
+| Shared cloud identity prototype | `shared_store_identity.py`, `cloud_signed_order_api.py` |
+| Agent governance prototype | `agent_execution_gate.py`, `vault_agent_adapters.py`; existing `identity/`, `registry/`, `policy/` |
+| Operator scripts | `scripts/enroll_store_fleet.py`, `scripts/smoke_signed_fleet.py`, `scripts/smoke_signed_http.py`, `scripts/run_signed_queue.py`, `scripts/verify_firestore_races.py` |
+| Verification | `tests/test_cloud_*.py` |
 
-1. Integrate cryptographic store authentication with FastAPI while preserving local development behavior; test signed request replay and negative cases at the endpoint.
-2. Design a multi-region-safe identity registry and nonce store; define enrollment, key custody and recovery processes.
-3. Enforce SG-IDENTITY-001 on real agent dispatch paths, with signed workload attestations and per-run auditing.
-4. Validate the active simulator is actually using Batch 3 delivery processing; exercise crash recovery, delayed acknowledgments, timeouts, and recovery probes.
-5. Reconcile historical pre-canonical orders; decide on Firestore PITR/backup and database-level DR.
-6. With explicit security and billing approval, deploy private, cost-controlled Cloud Run services in `us-central1` and `us-east4`, then test **actual** regional failure and controlled failback before connecting all 40 stores.
+All filenames above are relative to `applications/storeguard/cloud_dr/` unless another path is shown.
 
-**Cost target:** Less than USD $100/month, subject to actual billing verification. The current spend has not been measured here.
+## Trust and safety boundaries
 
-## Git hygiene
+- **Independent store identity:** Each store uses an Ed25519 key pair. A verified signature—not a caller-supplied `X-Store-ID` alone—must establish store identity in the signed API.
+- **Development API is local-only:** `order_api.py` still supports a single local development key. **Never publish that endpoint with the shared key**, even behind a public URL.
+- **Replay defense:** Local SQLite verification works for local tests. Firestore-backed shared trust/nonce handling has unit tests but still requires **live concurrent, cross-process, cross-region and revocation validation**, including nonce retention/cleanup policy.
+- **Agent requirements (SG-IDENTITY-001):** Every run needs fresh cryptographic workload identity verification, current registration/revocation and delegation/scope checks, a unique run ID, and an auditable decision. Every protected tool action must recheck authorization/revocation; never reuse prior-run authorization.
+- **Vault:** Existing managed AppRole session and adapters have tests. They do **not** yet prove end-to-end live Vault token lifecycle, independent delegation authority, cloud-wide audit durability or protected-tool enforcement.
+- **Delivery:** Keep stable logical order IDs and idempotency keys through retries; an HTTP timeout can occur *after* commit. Only mark acknowledged after a verified receipt. Do not run legacy and reliable delivery workers together on one queue. Multi-worker lease/heartbeat correctness is not yet proven.
+- **GUI freeze:** Do not edit the existing Streamlit executive GUI without explicit approval. Preserve all uncommitted work.
+- **Infrastructure:** No billable deployment or publicly accessible API without authorization. Budget target: **under $100/month**; actual spend must be checked in Google Cloud Billing.
 
-Use scoped staging and review every staged file before committing. In particular, exclude `.local/`, SQLite files, test output, archives, `*.bak`, private keys, secrets, and unrelated uncommitted Streamlit changes. Avoid `git add .`, `git clean`, or `git reset --hard` during this work.
+## Remaining milestones
+
+1. **6A validation:** Exercise shared Firestore trust, replay, key rotation and revocation with real cross-process contention; enforce a retention policy and validate failure behavior.
+2. **6B/6C Vault enforcement:** Wire trusted delegation, active registration, per-run policy, durable audit and protected action authorization to the real agent runtime; test against Vault.
+3. **Cloud deployment readiness:** Review least-privilege IAM, private Cloud Run invocation, Terraform plan, scaling/concurrency limits, logging and budget alerts. Require explicit deployment approval.
+4. **Real application failover:** Deploy private Cloud Run services in both regions; verify timeout/lost-ack recovery, regional loss and operator-controlled failback with 40 stores.
+5. **Executive end-to-end demo:** Integrate weather/incident response, governed agents, store protection and transaction recovery with the existing GUI **only after requirements and GUI approval**.
+
+**Separate follow-ups:** Reconcile historical pre-canonical orders; choose Firestore PITR/backup and an independent database recovery strategy. Firestore PITR was **disabled** at the last resource inspection.
+
+## Git hygiene and checkpoints
+
+The cloud subsystem was previously committed at `c08f1e9`; newer batches 5B–6C may be uncommitted locally. Stage **specific files**, review `git diff --cached`, and run `git diff --cached --check` before committing. Never stage `.local/`, key material, SQLite DBs, ZIP archives, backups or unrelated GUI files. Avoid `git add .`, `git clean`, and destructive resets.
+
+> **Definition of done for the full demo:** Actual regional failover has been exercised, every protected agent action is identity-verified and authorized at execution time, audit evidence is durable, business outcomes are visible in the approved executive GUI, and recovery can be repeated from a documented runbook.
