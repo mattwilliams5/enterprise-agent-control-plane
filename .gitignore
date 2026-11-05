@@ -59,3 +59,6 @@ ui/storeguard/*.pre-governance-backup
 **/override.tf.json
 **/*_override.tf
 **/*_override.tf.json
+
+# StoreGuard local credentials and identity data
+.local/
