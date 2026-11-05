@@ -37,5 +37,5 @@ else:
         st.write(f'**Vault entity verified during run (recorded):** `{entity or "Not recorded"}`')
         st.write(f"**Latest recorded lifecycle event:** `{run_events[0]['event_type']}`")
         st.caption('Historical records only; no claim of a currently authenticated session.')
-        st.dataframe(events, use_container_width=True, hide_index=True)
+        st.dataframe(events, width="stretch", hide_index=True)
         st.caption('SQLite development audit is not tamper-resistant or production-grade.')

@@ -5,6 +5,7 @@ simulation are owned by the existing application and are not modified here.
 """
 from datetime import datetime, timezone
 import streamlit as st
+from ui.storeguard.run_selection import resolve_run_selection
 from identity.vault_audit_verifier import verify_vault_audit
 
 
@@ -81,18 +82,53 @@ def _event_rows(events, audit):
     return sorted(rows, key=lambda r: r["Time (UTC)"], reverse=True)
 
 
-def _security_panel(incident, audit, agent_name):
+def _security_panel(incident, audit, agent_name, latest=None, ai_error=None,
+                    failed_snapshot=None):
     st.markdown("**🔐 Agent Security · Live Evidence**")
     st.caption(f"Agent: `{agent_name}` · Incident-specific application audit")
     if not incident:
         st.info("No incident started. Security evidence is pending.")
         return
+    if ai_error:
+        st.error("Current investigation failed; previous execution evidence does not establish success.")
+        if failed_snapshot is not None:
+            st.caption(
+                f"Failed attempt · Incident: `{failed_snapshot.incident_id}` "
+                f"· Store: `{failed_snapshot.store_id}` "
+                "· Governed run ID: not available in this view"
+            )
+
     run_ids = list(dict.fromkeys(str(e.get("run_id")) for e in audit if e.get("run_id")))
     if not run_ids:
         st.warning("No correlated agent run evidence yet; authorization not assumed.")
         return
-    selected = st.selectbox("Execution run", list(reversed(run_ids)), key="sg_v092_run")
+    latest_run = None
+    if latest and isinstance(latest[1], dict):
+        latest_run = latest[1].get("governed_run_id")
+
+    selected_run, observed_run = resolve_run_selection(
+        run_ids,
+        selected=st.session_state.get("sg_v092_run"),
+        observed=st.session_state.get("sg_v092_observed_run"),
+        latest_run=latest_run,
+    )
+    st.session_state["sg_v092_observed_run"] = observed_run
+    st.session_state["sg_v092_run"] = selected_run
+
+    selected = st.selectbox(
+        "Execution run",
+        list(reversed(run_ids)),
+        key="sg_v092_run",
+    )
     records = [e for e in audit if str(e.get("run_id")) == selected]
+
+    if ai_error:
+        st.info("Showing recorded execution evidence separately from the failed attempt.")
+    elif latest_run and str(selected) == str(latest_run):
+        st.caption("Selected execution matches the latest successful investigation.")
+    else:
+        st.info("Historical or separately recorded execution. Its evidence does not establish the current investigation's status.")
+
     types = {str(e.get("event_type", "")) for e in records}
     if types & {"DENIED", "UNREGISTERED"}:
         st.error("Authorization: denied / agent unregistered (recorded)")
@@ -170,7 +206,7 @@ def _trace_panel(events, audit, latest):
 
         st.dataframe(
             rows,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -198,7 +234,7 @@ def _trace_panel(events, audit, latest):
         if operational_rows:
             st.dataframe(
                 operational_rows,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         else:
@@ -213,7 +249,8 @@ def _trace_panel(events, audit, latest):
 
 
 def render_compact_cockpit(*, store_id, phase, incident, controller, agent_name,
-                           stages, events, audit, latest, ai_error):
+                           stages, events, audit, latest, ai_error,
+                           failed_snapshot=None):
     """One operational half; two permanently visible technical panels on the right."""
     # Never hide security failures, even if the detailed panel scrolls.
     if ai_error:
@@ -256,6 +293,11 @@ def render_compact_cockpit(*, store_id, phase, incident, controller, agent_name,
 
     with right:
         with st.container(border=True):
-            _security_panel(incident, audit, agent_name)
+            _security_panel(
+                incident, audit, agent_name,
+                latest=latest,
+                ai_error=ai_error,
+                failed_snapshot=failed_snapshot,
+            )
         with st.container(border=True):
             _trace_panel(events, audit, latest)
