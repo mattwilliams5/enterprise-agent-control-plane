@@ -12,6 +12,8 @@ if destination.exists():
 files = [
     'ui/storeguard/app.py',
     'ui/storeguard/cloud_overview.py',
+    'ui/storeguard/cloud_control_client.py',
+    'ui/storeguard/cloud_live_dr.py',
     'ui/storeguard/cloud_tornado.py',
     'ui/storeguard/cloud_data.py',
     'infrastructure/gcp/executive/requirements-cloud.txt',

@@ -20,6 +20,9 @@ if os.environ.get("STOREGUARD_CLOUD_MODE") == "1":
             default=True,
         ),
         st.Page(
+            "cloud_live_dr.py", title="Cloud DR Command Center", icon=":material/shield:",
+        ),
+        st.Page(
             "cloud_tornado.py",
             title="Tornado & DR Exercise",
             icon=":material/thunderstorm:",
