@@ -30,7 +30,9 @@ jobs:
           python -m pip install \
             -r deployments/storeguard/one-trigger/requirements.txt \
             -r deployments/storeguard/hosted-executive/requirements.txt \
-            pytest
+            pytest \
+            'fastapi>=0.115,<1' \
+            'hvac>=2,<3'
 
       - name: Validate Python syntax
         run: |
