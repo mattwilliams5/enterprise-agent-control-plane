@@ -76,6 +76,9 @@ st.caption(f'Verified demonstration run: {run_id}')
 st.success('A cryptographically signed synthetic order was acknowledged by the recovery service, and the operational Firestore receipt was independently verified by the job.')
 st.info('The tornado and primary-client outage were simulated. There was NO actual primary cloud outage, store-state recovery, or human recovery approval.')
 
+from ui.storeguard.cloud_dr_visual import show_regional_dr_path
+show_regional_dr_path(summary, run_id=run_id)
+
 st.subheader('Regional transaction evidence')
 left, right = st.columns(2)
 with left:
