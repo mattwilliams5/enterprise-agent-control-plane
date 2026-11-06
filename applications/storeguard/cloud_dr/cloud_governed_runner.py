@@ -11,7 +11,7 @@ from uuid import uuid4
 from applications.storeguard.cloud_dr.agent_execution_gate import (
     AgentExecutionGate,
 )
-from applications.storeguard.cloud_dr.protected_readonly_tools import (
+from applications.storeguard.cloud_dr.readonly_action_contract import (
     READ_ONLY_TOOL_ACTIONS,
     ToolDenied,
 )
