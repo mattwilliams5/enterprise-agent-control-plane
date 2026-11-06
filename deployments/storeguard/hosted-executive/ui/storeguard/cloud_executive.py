@@ -65,6 +65,9 @@ if latest_rid != run_id:
     else:
         st.warning('A newer run is incomplete or unverified. Displaying the latest previously verified run; do not treat these values as the newer run’s outcome.')
 
+from ui.storeguard.cloud_story import show_story
+show_story(summary, events, run_id=run_id)
+
 st.subheader('Most recent VERIFIED exercise — historical evidence')
 a, b, c, d = st.columns(4)
 a.metric('Stores in exercise fleet', 40)

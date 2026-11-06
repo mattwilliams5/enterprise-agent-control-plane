@@ -98,6 +98,8 @@ def live_evidence():
     m2.metric('Simulated storm exposure', len(summary['exposed']))
     m3.metric('Completed governed agents', len(summary['agents']))
     m4.metric('Recovery receipt', 'VERIFIED' if summary['verified'] else 'NOT VERIFIED')
+    from ui.storeguard.cloud_story import show_story
+    show_story(summary, events, run_id=selected)
     st.subheader('Storm exposure · six fictional stores')
     st.caption('SG-002 is the only store with scoped live agent delegations. No store mode was changed.')
     exposed = set(summary['exposed'])
