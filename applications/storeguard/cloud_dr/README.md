@@ -13,9 +13,9 @@ StoreGuard demonstrates how a network of retail stores can keep orders durable d
 | 40 independently signed store clients reached a **local** FastAPI server; 40 orders and 40 receipts independently verified in **real Firestore** | Durable queue retry/leases, regional health and controlled failback, shared Firestore identity/replay components, Vault agent adapters | Dual-region Cloud Run failover, real cross-region replay/revocation, live Vault agent enforcement at every protected action, independent database recovery |
 | Live Firestore same-order concurrency races passed for the two tested scenarios | 296 automated tests pass | Production security and availability requirements |
 
-**Cloud project:** `storeguard-dr-demo-2026`  
-**Firestore:** Native `(default)`, Standard edition, multi-region `nam7`  
-**App regions planned:** `us-central1` (primary), `us-east4` (recovery)  
+**Cloud project:** `storeguard-dr-demo-2026`
+**Firestore:** Native `(default)`, Standard edition, multi-region `nam7`
+**App regions planned:** `us-central1` (primary), `us-east4` (recovery)
 **Terraform state:** `gs://storeguard-dr-demo-2026-tfstate/` (`us-central1`)
 
 ## Architecture

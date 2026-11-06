@@ -1,7 +1,7 @@
 # StoreGuard — Cloud Order Processing & Regional Recovery
 
-**Repository:** `enterprise-agent-control-plane`  
-**Development branch:** `feature/storeguard-executive-gui`  
+**Repository:** `enterprise-agent-control-plane`
+**Development branch:** `feature/storeguard-executive-gui`
 **Status snapshot:** November 4, 2026 (last developer-verified results)
 
 StoreGuard is an enterprise retail-resilience demonstration. Its order-processing subsystem models retail stores generating orders, retaining them locally during network disruption, and delivering them through region-aware application endpoints to a transactional Firestore ledger. The broader platform explores policy-governed, auditable agent operations.
