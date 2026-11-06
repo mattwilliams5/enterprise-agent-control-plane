@@ -1,0 +1,42 @@
+name: StoreGuard CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Python regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            -r deployments/storeguard/one-trigger/requirements.txt \
+            -r deployments/storeguard/hosted-executive/requirements.txt \
+            pytest \
+            'fastapi>=0.115,<1' \
+            'hvac>=2,<3'
+
+      - name: Validate Python syntax
+        run: |
+          python -m compileall -q applications identity policy registry ui deployments/storeguard/hosted-executive/ui
+
+      - name: Run StoreGuard tests
+        run: python -m pytest -q

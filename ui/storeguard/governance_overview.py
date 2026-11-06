@@ -26,7 +26,7 @@ st.dataframe([{
     "Status": r["manifest"]["status"],
     "Registration SHA-256": r["fingerprint"][:16] + "…",
     "Run identity proof": "Not verified",
-} for r in rows], use_container_width=True, hide_index=True)
+} for r in rows], width="stretch", hide_index=True)
 st.caption("Registration fingerprints are calculated from current local metadata; they are not signed registration attestations.")
 st.subheader("Agent activity & exceptions")
 st.warning("No trusted, persistent execution audit feed connected. Do not infer zero incidents or zero unauthorized actions.")

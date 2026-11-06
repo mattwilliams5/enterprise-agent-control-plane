@@ -98,6 +98,9 @@ def reset_view():
     st.session_state.pop("sg_ai_pending_snapshot", None)
     st.session_state.pop("sg_ai_latest", None)
     st.session_state.pop("sg_ai_error", None)
+    st.session_state.pop("sg_ai_failed_snapshot", None)
+    st.session_state.pop("sg_v092_run", None)
+    st.session_state.pop("sg_v092_observed_run", None)
     st.session_state.pop("sg_ai_queued_snapshot", None)
     st.session_state.pop("sg_ai_history", None)
     st.session_state.pop("sg_demo_approval", None)
@@ -153,6 +156,7 @@ def request_ai_investigation(snapshot, *, automatic=False):
     st.session_state.sg_ai_future = investigation_pool().submit(_investigate_snapshot, snapshot)
     st.session_state.sg_ai_pending_snapshot = snapshot
     st.session_state.sg_ai_error = None
+    st.session_state.sg_ai_failed_snapshot = None
     st.session_state.events.append(AgentEventView(
         "AI_INVESTIGATION_STARTED",
         f"{'Automatic' if automatic else 'Operator-requested'} read-only AI investigation "
@@ -180,12 +184,14 @@ def collect_ai_investigation():
             st.session_state.setdefault("sg_ai_history", []).append(st.session_state.sg_ai_latest)
         st.session_state.sg_ai_latest = (snapshot, result)
         st.session_state.sg_ai_error = None
+        st.session_state.sg_ai_failed_snapshot = None
         st.session_state.events.append(AgentEventView(
             "AI_INVESTIGATION_COMPLETE",
             f"Read-only AI advisory ready for store {snapshot.store_id} "
             f"using {snapshot.evidence_key} evidence", "complete"))
     except Exception as exc:
         st.session_state.sg_ai_error = str(exc)
+        st.session_state.sg_ai_failed_snapshot = snapshot
         st.session_state.events.append(AgentEventView(
             "AI_INVESTIGATION_FAILED", f"AI advisory unavailable: {exc}", "error"))
     queued = st.session_state.pop("sg_ai_queued_snapshot", None)

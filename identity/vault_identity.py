@@ -14,6 +14,7 @@ class VerifiedVaultIdentity:
     entity_id: str
     policies: tuple[str, ...]
     token_ttl: int
+    login_request_id: str | None = None
 
 
 def authenticate_approle(
@@ -21,6 +22,7 @@ def authenticate_approle(
     vault_addr: str,
     role_id: str,
     secret_id: str,
+    required_policy: str = "storeguard-investigator",
 ) -> VerifiedVaultIdentity:
     """Authenticate using a fresh AppRole SecretID.
 
@@ -46,8 +48,8 @@ def authenticate_approle(
             raise VaultIdentityError("Vault returned no entity identity")
 
         policies = tuple(auth.get("policies", []))
-        if "storeguard-investigator" not in policies:
-            raise VaultIdentityError("Required investigator policy missing")
+        if not required_policy or set(policies) != {required_policy}:
+            raise VaultIdentityError("Unexpected Vault token policies")
 
         return VerifiedVaultIdentity(
             entity_id=entity_id,
@@ -76,6 +78,7 @@ def managed_approle_session(
     vault_addr: str,
     role_id: str,
     secret_id: str,
+    required_policy: str = "storeguard-investigator",
     on_token_revoked=None,
 ):
     """Authenticate and manage a short-lived Vault token.
@@ -109,8 +112,8 @@ def managed_approle_session(
 
         if not entity_id:
             raise VaultIdentityError("Vault returned no entity identity")
-        if "storeguard-investigator" not in policies:
-            raise VaultIdentityError("Required investigator policy missing")
+        if not required_policy or set(policies) != {required_policy}:
+            raise VaultIdentityError("Unexpected Vault token policies")
         if ttl <= 0:
             raise VaultIdentityError("Vault returned an invalid token TTL")
 
@@ -118,6 +121,7 @@ def managed_approle_session(
             entity_id=entity_id,
             policies=policies,
             token_ttl=ttl,
+            login_request_id=response.get("request_id"),
         )
 
     finally:

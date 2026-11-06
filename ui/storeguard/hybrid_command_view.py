@@ -3,7 +3,58 @@
 Presentation only. Incident controller, Vault gate, audit persistence and DR
 simulation are owned by the existing application and are not modified here.
 """
+from datetime import datetime, timezone
 import streamlit as st
+from ui.storeguard.run_selection import resolve_run_selection
+from identity.vault_audit_verifier import verify_vault_audit
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _cached_vault_verification(login_id, entity_id):
+    return verify_vault_audit(login_id, entity_id)
+
+
+def _vault_evidence(records):
+    login_ids = {
+        str(e["vault_login_request_id"])
+        for e in records if e.get("vault_login_request_id")
+    }
+    entities = {
+        str(e["vault_entity_id"])
+        for e in records if e.get("vault_entity_id")
+    }
+    types = {str(e.get("event_type", "")) for e in records}
+
+    if "REVOCATION_FAILED" in types:
+        return "partial", "Application reported token revocation failure."
+
+    if "TOKEN_REVOKED" not in types:
+        return "pending", "Application token revocation event is missing."
+
+    if len(login_ids) != 1 or len(entities) != 1:
+        return "pending", "Unique login request and Vault entity are required."
+
+    result = _cached_vault_verification(
+        next(iter(login_ids)),
+        next(iter(entities)),
+    )
+    return result.status, result.detail
+
+
+def _render_vault_status(records):
+    status, detail = _vault_evidence(records)
+    if status == "verified":
+        st.success("🛡️ Vault server audit VERIFIED")
+        st.caption(detail)
+    elif status == "partial":
+        st.warning("Vault server audit: partial evidence")
+        st.caption(detail)
+    elif status == "unavailable":
+        st.warning("Vault server audit: source unavailable")
+        st.caption(detail)
+    else:
+        st.info("Vault server audit: verification pending")
+        st.caption(detail)
 
 
 def _value(item, field, default=""):
@@ -31,18 +82,53 @@ def _event_rows(events, audit):
     return sorted(rows, key=lambda r: r["Time (UTC)"], reverse=True)
 
 
-def _security_panel(incident, audit, agent_name):
+def _security_panel(incident, audit, agent_name, latest=None, ai_error=None,
+                    failed_snapshot=None):
     st.markdown("**🔐 Agent Security · Live Evidence**")
     st.caption(f"Agent: `{agent_name}` · Incident-specific application audit")
     if not incident:
         st.info("No incident started. Security evidence is pending.")
         return
+    if ai_error:
+        st.error("Current investigation failed; previous execution evidence does not establish success.")
+        if failed_snapshot is not None:
+            st.caption(
+                f"Failed attempt · Incident: `{failed_snapshot.incident_id}` "
+                f"· Store: `{failed_snapshot.store_id}` "
+                "· Governed run ID: not available in this view"
+            )
+
     run_ids = list(dict.fromkeys(str(e.get("run_id")) for e in audit if e.get("run_id")))
     if not run_ids:
         st.warning("No correlated agent run evidence yet; authorization not assumed.")
         return
-    selected = st.selectbox("Execution run", list(reversed(run_ids)), key="sg_v092_run")
+    latest_run = None
+    if latest and isinstance(latest[1], dict):
+        latest_run = latest[1].get("governed_run_id")
+
+    selected_run, observed_run = resolve_run_selection(
+        run_ids,
+        selected=st.session_state.get("sg_v092_run"),
+        observed=st.session_state.get("sg_v092_observed_run"),
+        latest_run=latest_run,
+    )
+    st.session_state["sg_v092_observed_run"] = observed_run
+    st.session_state["sg_v092_run"] = selected_run
+
+    selected = st.selectbox(
+        "Execution run",
+        list(reversed(run_ids)),
+        key="sg_v092_run",
+    )
     records = [e for e in audit if str(e.get("run_id")) == selected]
+
+    if ai_error:
+        st.info("Showing recorded execution evidence separately from the failed attempt.")
+    elif latest_run and str(selected) == str(latest_run):
+        st.caption("Selected execution matches the latest successful investigation.")
+    else:
+        st.info("Historical or separately recorded execution. Its evidence does not establish the current investigation's status.")
+
     types = {str(e.get("event_type", "")) for e in records}
     if types & {"DENIED", "UNREGISTERED"}:
         st.error("Authorization: denied / agent unregistered (recorded)")
@@ -64,53 +150,107 @@ def _security_panel(incident, audit, agent_name):
         st.success("Credential closure: revocation recorded")
     else:
         st.warning("Credential closure: not evidenced")
-    st.caption("These are local application records, not independently verified Vault server audit logs.")
+    _render_vault_status(records)
+
 
 
 def _trace_panel(events, audit, latest):
-    st.markdown("**🔎 Technical Evidence · Live Trace**")
+    st.markdown("**🔎 Technical Evidence · Investigation Console**")
     selected_run = st.session_state.get("sg_v092_run")
-    security_rows = [
-        {
-            "Time (UTC)": str(e.get("timestamp", "")),
-            "Source": "Application audit",
-            "Event": str(e.get("event_type", "")),
-            "Run": str(e.get("run_id", "")),
-        }
-        for e in audit
-        if selected_run and str(e.get("run_id", "")) == str(selected_run)
-    ]
 
-    if security_rows:
-        st.caption(f"Selected agent execution: {selected_run}")
-        st.dataframe(
-            sorted(security_rows, key=lambda r: r["Time (UTC)"]),
-            use_container_width=True,
-            hide_index=True,
-            height=230,
-        )
-    else:
+    records = [
+        e for e in audit
+        if selected_run
+        and str(e.get("run_id", "")) == str(selected_run)
+    ]
+    records.sort(key=lambda e: str(e.get("timestamp", "")))
+
+    if not records:
         st.info("No security audit records for the selected execution.")
+    else:
+        entity_ids = {
+            str(e.get("vault_entity_id"))
+            for e in records
+            if e.get("vault_entity_id")
+        }
+        types = {str(e.get("event_type", "")) for e in records}
+
+        st.caption("Selected execution: " + str(selected_run))
+        _render_vault_status(records)
+
+        a, b, c = st.columns(3)
+        a.metric("Audit events", len(records))
+        b.metric("Vault entities", len(entity_ids))
+        c.metric(
+            "Credential closure",
+            "Failed" if "REVOCATION_FAILED" in types
+            else "Recorded" if "TOKEN_REVOKED" in types
+            else "Pending",
+        )
+
+        st.markdown("**Execution timeline**")
+        rows = []
+        for e in records:
+            timestamp = str(e.get("timestamp", ""))
+            try:
+                dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                timestamp = dt.astimezone(timezone.utc).strftime("%H:%M:%S.%f")[:-3]
+            except ValueError:
+                pass
+
+            rows.append({
+                "UTC": timestamp,
+                "Event": str(e.get("event_type", "")),
+                "Reason": str(e.get("reason") or "Not recorded"),
+            })
+
+        st.dataframe(
+            rows,
+            width="stretch",
+            hide_index=True,
+        )
+
+        with st.expander("Full investigation evidence", expanded=False):
+            st.caption("Application events shown below; Vault verification is displayed separately.")
+            for index, e in enumerate(records, 1):
+                st.markdown(
+                    f"**{index}. {e.get('event_type', 'Unknown')}**"
+                )
+                st.json({
+                    "timestamp": e.get("timestamp"),
+                    "event_type": e.get("event_type"),
+                    "run_id": e.get("run_id"),
+                    "vault_entity_id": e.get("vault_entity_id"),
+                    "reason": e.get("reason"),
+                })
+
+    st.caption(
+        "Execution timeline: application SQLite audit. "
+        "Vault verification: independently matched server audit records."
+    )
 
     with st.expander("Simulated operational timeline", expanded=False):
         operational_rows = _event_rows(events, [])
         if operational_rows:
             st.dataframe(
                 operational_rows,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         else:
             st.info("No operational events recorded.")
-    st.caption("Operational events are simulated; security events come from the application SQLite audit.")
+
     if latest:
         with st.expander("Historical AI recommendation", expanded=False):
             st.write(str(latest[1].get("analysis", "No analysis returned.")))
-            st.caption("Historical advisory snapshot; may not describe the current store state.")
+            st.caption(
+                "Historical advisory snapshot; may not describe the current store state."
+            )
 
 
 def render_compact_cockpit(*, store_id, phase, incident, controller, agent_name,
-                           stages, events, audit, latest, ai_error):
+                           stages, events, audit, latest, ai_error,
+                           failed_snapshot=None):
     """One operational half; two permanently visible technical panels on the right."""
     # Never hide security failures, even if the detailed panel scrolls.
     if ai_error:
@@ -152,7 +292,12 @@ def render_compact_cockpit(*, store_id, phase, incident, controller, agent_name,
             st.caption("Start, pause, approval, verification and reset controls remain at the top of Mission Control.")
 
     with right:
-        with st.container(border=True, height=290):
-            _security_panel(incident, audit, agent_name)
-        with st.container(border=True, height=330):
+        with st.container(border=True):
+            _security_panel(
+                incident, audit, agent_name,
+                latest=latest,
+                ai_error=ai_error,
+                failed_snapshot=failed_snapshot,
+            )
+        with st.container(border=True):
             _trace_panel(events, audit, latest)

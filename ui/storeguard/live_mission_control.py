@@ -42,17 +42,17 @@ with st.container():
 
     b1, b2, b3 = st.columns(3)
     with b1:
-        if st.button("▶ Start tornado demo", type="primary", use_container_width=True, key="mission_start"):
+        if st.button("▶ Start tornado demo", type="primary", width="stretch", key="mission_start"):
             start_governed_tornado(path)
             st.rerun()
     with b2:
         terminal = scenario is None or phase in (Phase.AWAITING_APPROVAL, Phase.ESCALATED, Phase.NORMAL)
         if st.button("⏸ Pause" if st.session_state.get("tornado_running", False) else "▶ Resume",
-                     disabled=terminal, use_container_width=True, key="mission_pause"):
+                     disabled=terminal, width="stretch", key="mission_pause"):
             st.session_state.tornado_running = not st.session_state.get("tornado_running", False)
             st.rerun()
     with b3:
-        if st.button("↺ Reset", use_container_width=True, key="mission_reset"):
+        if st.button("↺ Reset", width="stretch", key="mission_reset"):
             reset_view()
             st.rerun()
 
@@ -78,7 +78,7 @@ def _incident_audit():
         with sqlite3.connect(f"file:{Path(AUDIT_DB).resolve()}?mode=ro",uri=True,timeout=2) as db:
             db.row_factory=sqlite3.Row
             return [dict(row) for row in db.execute(
-                "SELECT timestamp,run_id,agent,store_id,incident_id,event_type,reason,vault_entity_id "
+                "SELECT timestamp,run_id,agent,store_id,incident_id,event_type,reason,vault_entity_id,vault_login_request_id "
                 "FROM execution_events WHERE incident_id=? AND store_id=? AND agent=? "
                 "ORDER BY timestamp ASC,rowid ASC LIMIT 300",
                 (str(incident.incident_id),store_id,AGENT_NAME))]
@@ -100,17 +100,22 @@ def live_mission():
     incident_now=st.session_state.get("incident")
     events=st.session_state.get("events",[])
     audit=_incident_audit() if incident_now else []
-    audit_names=[e["event_type"] for e in audit]
+    from ui.storeguard.investigation_status import investigation_stage_status
     ai_future=st.session_state.get("sg_ai_future")
     ai_pending=ai_future is not None and not ai_future.done()
     latest=st.session_state.get("sg_ai_latest")
-    completed=bool(latest and latest[1].get("governed_run_id") and "COMPLETED" in audit_names)
+    ai_stage=investigation_stage_status(
+        latest=latest,
+        audit=audit,
+        ai_pending=ai_pending,
+        ai_error=st.session_state.get("sg_ai_error"),
+    )
     approved=any(e.event_type=="DEMO_APPROVAL" for e in events)
     verified=any(e.event_type=="DEMO_POST_CHECKS_PASSED" for e in events)
     check_done=any(e.event_type.startswith("SCENARIO_") and e.event_type!="SCENARIO_ERROR" for e in events)
     stages=[
       ("1 · Store check","Complete" if check_done else "Waiting"),
-      ("2 · Vault + AI","Complete" if completed else "Running" if ai_pending else "Failed" if st.session_state.get("sg_ai_error") else "Waiting"),
+      ("2 · Vault + AI",ai_stage),
       ("3 · Human review","Approved (simulated)" if approved else "Action required" if phase==Phase.AWAITING_APPROVAL else "Waiting"),
       ("4 · DR transition","Complete (simulated)" if approved and phase in (Phase.RECOVERY,Phase.NORMAL) else "Waiting"),
       ("5 · Verification","Complete (simulated)" if verified else "Waiting"),
@@ -127,6 +132,7 @@ def live_mission():
         audit=audit,
         latest=latest,
         ai_error=st.session_state.get("sg_ai_error"),
+        failed_snapshot=st.session_state.get("sg_ai_failed_snapshot"),
     )
 
 live_mission()

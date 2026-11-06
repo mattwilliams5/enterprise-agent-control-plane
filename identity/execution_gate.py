@@ -43,6 +43,11 @@ def _record(db_path, event):
                 "PRAGMA table_info(execution_events)"
             )
         }
+        if "vault_login_request_id" not in columns:
+            db.execute(
+                "ALTER TABLE execution_events "
+                "ADD COLUMN vault_login_request_id TEXT"
+            )
         if "registration_fingerprint" not in columns:
             db.execute(
                 "ALTER TABLE execution_events "
@@ -53,17 +58,19 @@ def _record(db_path, event):
             INSERT INTO execution_events (
                 event_id, run_id, timestamp, agent,
                 store_id, incident_id, action, event_type,
-                reason, vault_entity_id, registration_fingerprint
+                reason, vault_entity_id, registration_fingerprint,
+                vault_login_request_id
             ) VALUES (
                 :event_id, :run_id, :timestamp, :agent,
                 :store_id, :incident_id, :action, :event_type,
-                :reason, :vault_entity_id, :registration_fingerprint
+                :reason, :vault_entity_id, :registration_fingerprint,
+                :vault_login_request_id
             )
         """, event)
 
 
 def _event(run_id, agent, store_id, incident_id, event_type,
-           reason, vault_entity_id=None):
+           reason, vault_entity_id=None, vault_login_request_id=None):
     try:
         fingerprint = registration_fingerprint(agent)
     except ValueError:
@@ -81,6 +88,7 @@ def _event(run_id, agent, store_id, incident_id, event_type,
         "event_type": event_type,
         "reason": reason,
         "vault_entity_id": vault_entity_id,
+        "vault_login_request_id": vault_login_request_id,
     }
 
 
@@ -99,6 +107,7 @@ def execute_investigation(
     """Authorize, execute, audit, and clean up one investigation."""
     run_id = str(uuid.uuid4())
     entity_id = None
+    login_request_id = None
     authorized = False
     execution_started = False
     investigation_failed = False
@@ -124,6 +133,7 @@ def execute_investigation(
             on_token_revoked=record_token_revoked,
         ) as identity:
             entity_id = identity.entity_id
+            login_request_id = identity.login_request_id
 
             verify_agent_identity(agent_name, identity)
 
@@ -138,6 +148,7 @@ def execute_investigation(
             _record(db_path, _event(
                 run_id, agent_name, store_id, incident_id,
                 "AUTHORIZED", "Identity and scope verified", entity_id,
+                login_request_id,
             ))
             authorized = True
 

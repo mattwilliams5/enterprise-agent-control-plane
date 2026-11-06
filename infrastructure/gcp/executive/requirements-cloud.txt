@@ -1,0 +1,12 @@
+streamlit==1.66.0
+google-cloud-firestore==2.34.1
+google-auth==2.62.1
+cryptography==50.0.2
+python-dotenv==1.2.4
+fastapi==0.162.0
+httpx==0.28.1
+hvac==2.4.0
+openai==3.41.0
+pydantic==2.14.1
+requests==2.34.2
+uvicorn==0.54.0
